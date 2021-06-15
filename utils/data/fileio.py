@@ -72,9 +72,7 @@ def _read_files(filelist, branches, load_range=None, show_progressbar=False, **k
             _logger.error('When reading file %s:', filepath)
             _logger.error(traceback.format_exc())
         if a is not None:
-            print("### -",branches)
             for name in branches:
-                print("### - ", name)
                 table[name].append(a[name.encode(encoding='utf-8')].astype('float32'))
     table = {name:_concat(arrs) for name, arrs in table.items()}
     return table
