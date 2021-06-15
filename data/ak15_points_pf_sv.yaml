@@ -31,16 +31,16 @@ inputs:
       ###              clip_min(optional, default=-5), 
       ###              clip_max(optional, default=5), 
       ###              pad_value(optional, default=0)]
-         - [pfcand_pt_log_nopuppi, 0.6, 0.6]
-         - [pfcand_e_log_nopuppi, 1, 0.6]
+         # - [pfcand_pt_log_nopuppi, 0.6, 0.6]
+         # - [pfcand_e_log_nopuppi, 1, 0.6]
          - pfcand_etarel
          - pfcand_phirel
-         - [pfcand_abseta, 0.7, 1.4]
+         # - [pfcand_abseta, 0.7, 1.4]
          - pfcand_charge
          - [pfcand_VTX_ass, 4, 0.3]
          - pfcand_lostInnerHits
-         - [pfcand_normchi2, 5, 0.2]
-         - [pfcand_quality, 0, 0.2]
+         # - [pfcand_normchi2, 5, 0.2]
+         # - [pfcand_quality, 0, 0.2]
          - [pfcand_dz, 0, 170]
          - [pfcand_dzsig, 0, 1.2]
          - [pfcand_dxy, 0.0, 250]
