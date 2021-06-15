@@ -45,6 +45,7 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, use_amp=False):
     with tqdm.tqdm(train_loader) as tq:
         for X, y, _ in tq:
             inputs = [X[k].to(dev) for k in data_config.input_names]
+            print("### data_config.input_names",data_config.input_names)
             label = y[data_config.label_names[0]].long()
             try:
                 label_mask = y[data_config.label_names[0] + '_mask'].bool()
