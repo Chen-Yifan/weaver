@@ -6,6 +6,7 @@ from ..logger import _logger
 
 
 def _read_hdf5(filepath, branches, load_range=None):
+    print('filepath:', filepath, branches)
     import tables
     tables.set_blosc_max_threads(4)
     with tables.open_file(filepath) as f:
@@ -19,7 +20,7 @@ def _read_hdf5(filepath, branches, load_range=None):
 
 
 def _read_root(filepath, branches, load_range=None, treename=None):
-    import uproot
+    import uproot3 as uproot
     with uproot.open(filepath) as f:
         if treename is None:
             treenames = set([k.decode('utf-8').split(';')[0] for k, v in f.allitems() if getattr(v, 'classname', '') == 'TTree'])
@@ -33,12 +34,12 @@ def _read_root(filepath, branches, load_range=None, treename=None):
             stop = max(start + 1, math.trunc(load_range[1] * tree.numentries))
         else:
             start, stop = None, None
-        outputs = tree.arrays(branches, namedecode='utf-8', entrystart=start, entrystop=stop)
+        outputs = tree.arrays(branches, entrystart=start, entrystop=stop)
     return outputs
 
 
 def _read_awkd(filepath, branches, load_range=None):
-    import awkward
+    import awkward0 as awkward
     with awkward.load(filepath) as f:
         outputs = {k:f[k] for k in branches}
     if load_range is not None:
@@ -71,14 +72,16 @@ def _read_files(filelist, branches, load_range=None, show_progressbar=False, **k
             _logger.error('When reading file %s:', filepath)
             _logger.error(traceback.format_exc())
         if a is not None:
+            print("### -",branches)
             for name in branches:
-                table[name].append(a[name].astype('float32'))
+                print("### - ", name)
+                table[name].append(a[name.encode(encoding='utf-8')].astype('float32'))
     table = {name:_concat(arrs) for name, arrs in table.items()}
     return table
 
 
 def _write_root(file, table, treename='Events', compression=-1, step=1048576):
-    import uproot
+    import uproot3 as uproot
     if compression == -1:
         compression = uproot.write.compress.LZ4(4)
     with uproot.recreate(file, compression=compression) as fout:

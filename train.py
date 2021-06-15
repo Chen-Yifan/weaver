@@ -288,7 +288,7 @@ def main():
                     output[k] = v
                 _write_root(args.predict_output, output)
             else:
-                import awkward
+                import awkward0 as awkward
                 output = {'scores':scores}
                 output.update(labels)
                 output.update(observers)
