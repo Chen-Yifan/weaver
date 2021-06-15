@@ -51,29 +51,29 @@ inputs:
          - [pfcand_btagSip3dVal, 0, 230]
          - [pfcand_btagSip3dSig, 0, 1]
          - [pfcand_btagJetDistVal, 0, 145]
-   pf_mask:
-      length: 100
-      vars: 
-         - pfcand_mask
-   #sv_points:
-   #   length: 10
-   #   vars:
-   #      - sv_etarel 
-   #      - sv_phirel
-   #sv_features:
-    #  length: 10
-    #  vars:
+   # pf_mask:
+   #    length: 100
+   #    vars: 
+   #       - pfcand_mask
+   sv_points:
+     length: 10
+     vars:
+        - sv_etarel 
+        - sv_phirel
+   sv_features:
+     length: 10
+     vars:
         # - [sv_pt_log, 3, 0.6]
-        # - [sv_mass, 3, 0.3]
-        # - sv_etarel
-        # - sv_phirel
+        - [sv_mass, 3, 0.3]
+        - sv_etarel
+        - sv_phirel
         # - [sv_abseta, 0.7, 1.4]
-        # - [sv_ntracks, 3, 1]
-        # - [sv_normchi2, 1, 0.5]
-        # - [sv_dxy, 0.25, 0.4]
-        # - [sv_dxysig, 6.7, 0.03]
-        # - [sv_d3d, 0.4, 0.3]
-        # - [sv_d3dsig, 6.7, 0.03]
+        - [sv_ntracks, 3, 1]
+        - [sv_normchi2, 1, 0.5]
+        - [sv_dxy, 0.25, 0.4]
+        - [sv_dxysig, 6.7, 0.03]
+        - [sv_d3d, 0.4, 0.3]
+        - [sv_d3dsig, 6.7, 0.03]
    #sv_mask:
    #   length: 10
    #   vars:
