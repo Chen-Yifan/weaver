@@ -13,6 +13,8 @@ import ast
 from utils.logger import _logger
 from utils.dataset import SimpleIterDataset
 from utils.nn.tools import train, evaluate
+import torch.distributed as dist
+import torch.multiprocessing as mp
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--data-config', type=str, default='data/ak15_points_pf_sv_v0.yaml',
@@ -237,7 +239,7 @@ def predict_model(args, test_loader, model, dev, data_config, gpus):
         _logger.info('Loading model %s for eval' % model_path)
         model.load_state_dict(torch.load(model_path, map_location=dev))
         if gpus is not None and len(gpus) > 1:
-            model = torch.nn.DataParallel(model, device_ids=gpus)
+            model = torch.nn.DistributedDataParallel(model, device_ids=gpus)
         model = model.to(dev)
         test_acc, scores, labels, observers = evaluate(model, test_loader, dev, for_training=False)
     _logger.info('Test acc %.5f' % test_acc)
@@ -305,6 +307,113 @@ def save_awk(scores, labels, observers):
 
     awkward.save(args.predict_output, output, mode='w')
 
+def distributed_train(gpu, args, train_loader, val_loader, network_module, model, data_config, gpus, train_input_names, train_label_names):
+# loss function
+    try:
+        network_options = {k: ast.literal_eval(v) for k, v in args.network_option}
+        loss_func = network_module.get_loss(data_config, **network_options)
+        _logger.info(loss_func)
+    except AttributeError:
+        loss_func = torch.nn.CrossEntropyLoss()
+        _logger.warning('Loss function not defined in %s. Will use `torch.nn.CrossEntropyLoss()` by default.',
+                        args.network_config)
+    # optimizer & learning rate
+    opt, scheduler = optim(args, model)
+    # metrics
+    acc_vals_validation = np.zeros(args.num_epochs)
+    loss_vals_training = np.zeros(args.num_epochs)
+    loss_std_training = np.zeros(args.num_epochs)
+    loss_vals_validation = np.zeros(args.num_epochs)
+    loss_std_validation = np.zeros(args.num_epochs)
+    # load previous training and resume if `--load-epoch` is set
+    if args.load_epoch is not None:
+        _logger.info('Resume training from epoch %d' % args.load_epoch)
+        model_state = torch.load(args.model_prefix + '_epoch-%d_state.pt' % args.load_epoch, map_location=gpu)
+        model.load_state_dict(model_state)
+        opt_state = torch.load(args.model_prefix + '_epoch-%d_optimizer.pt' % args.load_epoch, map_location=gpu)
+        opt.load_state_dict(opt_state)
+        t_acc_vals_validation = np.load('%s_history/acc_vals_validation.npy'%(args.model_prefix))
+        t_loss_vals_training = np.load('%s_history/loss_vals_training.npy'%(args.model_prefix))
+        t_loss_std_training = np.load('%s_history/loss_std_training.npy'%(args.model_prefix))
+        t_loss_vals_validation = np.load('%s_history/loss_vals_validation.npy'%(args.model_prefix))
+        t_loss_std_validation = np.load('%s_history/loss_std_validation.npy'%(args.model_prefix))
+        for i,k in enumerate(t_acc_vals_validation): acc_vals_validation[i] = k
+        for i,k in enumerate(t_loss_vals_training): loss_vals_training[i] = k
+        for i,k in enumerate(t_loss_std_training): loss_std_training[i] = k
+        for i,k in enumerate(t_loss_vals_validation): loss_vals_validation[i] = k
+        for i,k in enumerate(t_loss_std_validation): loss_std_validation[i] = k
+
+    gpus_per_node = 4
+    n_nodes = 1
+    rank = gpus_per_node * n_nodes + gpu
+    world_size = gpus_per_node * n_nodes
+    dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
+
+    torch.manual_seed(0)
+    torch.cuda.set_device(gpu)
+    model.cuda(gpu)
+
+    # multi-gpu
+    if gpus > 1:
+        model = torch.nn.parallel.DistributedDataParallel(model,
+                                      device_ids=[gpu])  # model becomes `torch.nn.DataParallel` w/ model.module being the orignal `torch.nn.Module`
+
+    # lr finder: keep it after all other setups
+    if args.lr_finder is not None:
+        start_lr, end_lr, num_iter = args.lr_finder.replace(' ', '').split(',')
+        from utils.lr_finder import LRFinder
+        lr_finder = LRFinder(model, opt, loss_func, device=gpu, input_names=train_input_names,
+                             label_names=train_label_names)
+        lr_finder.range_test(train_loader, start_lr=float(start_lr), end_lr=float(end_lr), num_iter=int(num_iter))
+        lr_finder.plot(output='lr_finder.png')  # to inspect the loss-learning rate graph
+        return
+    if args.use_amp:
+        from torch.cuda.amp import GradScaler
+        scaler = GradScaler()
+    else:
+        scaler = None
+    # training loop
+    best_valid_acc = 0
+    for epoch in range(args.num_epochs):
+        if args.load_epoch is not None:
+            if epoch <= args.load_epoch:
+                continue
+        print('-' * 50)
+        _logger.info('Epoch #%d training' % epoch)
+        loss_mean,loss_std = train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=scaler)
+        loss_vals_training[epoch] =loss_mean
+        loss_std_training[epoch] = loss_std
+        if args.model_prefix:
+            dirname = os.path.dirname(args.model_prefix)
+            if dirname and not os.path.exists(dirname):
+                os.makedirs(dirname)
+            state_dict = model.module.state_dict() if isinstance(model,
+                                                                 torch.nn.DataParallel) else model.state_dict()
+            torch.save(state_dict, args.model_prefix + '_epoch-%d_state.pt' % epoch)
+            torch.save(opt.state_dict(), args.model_prefix + '_epoch-%d_optimizer.pt' % epoch)
+        _logger.info('Epoch #%d validating' % epoch)
+        valid_acc,loss_mean,loss_std = evaluate(model, val_loader, dev, loss_func=loss_func)
+        loss_vals_validation[epoch] =loss_mean
+        loss_std_validation[epoch] = loss_std
+        acc_vals_validation[epoch] = valid_acc
+        if valid_acc > best_valid_acc:
+            best_valid_acc = valid_acc
+            if args.model_prefix:
+                shutil.copy2(args.model_prefix + '_epoch-%d_state.pt' % epoch,
+                             args.model_prefix + '_best_acc_state.pt')
+                torch.save(model, args.model_prefix + '_best_acc_full.pt')
+        _logger.info('Epoch #%d: Current validation acc: %.5f (best: %.5f)' % (epoch, valid_acc, best_valid_acc))
+        
+        # save again in each epoch?
+        os.system('mkdir -p %s_history/'%args.model_prefix)
+        np.save('%s_history/acc_vals_validation.npy'%(args.model_prefix),acc_vals_validation)
+        np.save('%s_history/loss_vals_training.npy'%(args.model_prefix),loss_vals_training)
+        np.save('%s_history/loss_vals_validation.npy'%(args.model_prefix),loss_vals_validation)
+        np.save('%s_history/loss_std_validation.npy'%(args.model_prefix),loss_std_validation)
+        np.save('%s_history/loss_std_training.npy'%(args.model_prefix),loss_std_training)
+    dirname = os.path.dirname('%s_history/'%args.model_prefix)
+    if dirname and not os.path.exists(dirname):
+        os.makedirs(dirname)
 
 def main(args):
     _logger.info(args)
@@ -344,116 +453,15 @@ def main(args):
 
     # note: we should always save/load the state_dict of the original model, not the one wrapped by nn.DataParallel
     # so we do not convert it to nn.DataParallel now
-    model = model.to(dev)
+    # model = model.to(dev)
 
     if training_mode:
-        # loss function
-        try:
-            network_options = {k: ast.literal_eval(v) for k, v in args.network_option}
-            loss_func = network_module.get_loss(data_config, **network_options)
-            _logger.info(loss_func)
-        except AttributeError:
-            loss_func = torch.nn.CrossEntropyLoss()
-            _logger.warning('Loss function not defined in %s. Will use `torch.nn.CrossEntropyLoss()` by default.',
-                            args.network_config)
-
-        # optimizer & learning rate
-        opt, scheduler = optim(args, model)
-
-        # metrics
-        acc_vals_validation = np.zeros(args.num_epochs)
-        loss_vals_training = np.zeros(args.num_epochs)
-        loss_std_training = np.zeros(args.num_epochs)
-        loss_vals_validation = np.zeros(args.num_epochs)
-        loss_std_validation = np.zeros(args.num_epochs)
-
-        # load previous training and resume if `--load-epoch` is set
-        if args.load_epoch is not None:
-            _logger.info('Resume training from epoch %d' % args.load_epoch)
-            model_state = torch.load(args.model_prefix + '_epoch-%d_state.pt' % args.load_epoch, map_location=dev)
-            model.load_state_dict(model_state)
-            opt_state = torch.load(args.model_prefix + '_epoch-%d_optimizer.pt' % args.load_epoch, map_location=dev)
-            opt.load_state_dict(opt_state)
-
-            t_acc_vals_validation = np.load('%s_history/acc_vals_validation.npy'%(args.model_prefix))
-            t_loss_vals_training = np.load('%s_history/loss_vals_training.npy'%(args.model_prefix))
-            t_loss_std_training = np.load('%s_history/loss_std_training.npy'%(args.model_prefix))
-            t_loss_vals_validation = np.load('%s_history/loss_vals_validation.npy'%(args.model_prefix))
-            t_loss_std_validation = np.load('%s_history/loss_std_validation.npy'%(args.model_prefix))
-
-            for i,k in enumerate(t_acc_vals_validation): acc_vals_validation[i] = k
-            for i,k in enumerate(t_loss_vals_training): loss_vals_training[i] = k
-            for i,k in enumerate(t_loss_std_training): loss_std_training[i] = k
-            for i,k in enumerate(t_loss_vals_validation): loss_vals_validation[i] = k
-            for i,k in enumerate(t_loss_std_validation): loss_std_validation[i] = k
-
-        # multi-gpu
-        if gpus is not None and len(gpus) > 1:
-            model = torch.nn.DataParallel(model,
-                                          device_ids=gpus)  # model becomes `torch.nn.DataParallel` w/ model.module being the orignal `torch.nn.Module`
-        model = model.to(dev)
-
-        # lr finder: keep it after all other setups
-        if args.lr_finder is not None:
-            start_lr, end_lr, num_iter = args.lr_finder.replace(' ', '').split(',')
-            from utils.lr_finder import LRFinder
-            lr_finder = LRFinder(model, opt, loss_func, device=dev, input_names=train_input_names,
-                                 label_names=train_label_names)
-            lr_finder.range_test(train_loader, start_lr=float(start_lr), end_lr=float(end_lr), num_iter=int(num_iter))
-            lr_finder.plot(output='lr_finder.png')  # to inspect the loss-learning rate graph
-            return
-
-        if args.use_amp:
-            from torch.cuda.amp import GradScaler
-            scaler = GradScaler()
-        else:
-            scaler = None
-
-        # training loop
-        best_valid_acc = 0
-        for epoch in range(args.num_epochs):
-            if args.load_epoch is not None:
-                if epoch <= args.load_epoch:
-                    continue
-            print('-' * 50)
-            _logger.info('Epoch #%d training' % epoch)
-            loss_mean,loss_std = train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=scaler)
-            loss_vals_training[epoch] =loss_mean
-            loss_std_training[epoch] = loss_std
-
-            if args.model_prefix:
-                dirname = os.path.dirname(args.model_prefix)
-                if dirname and not os.path.exists(dirname):
-                    os.makedirs(dirname)
-                state_dict = model.module.state_dict() if isinstance(model,
-                                                                     torch.nn.DataParallel) else model.state_dict()
-                torch.save(state_dict, args.model_prefix + '_epoch-%d_state.pt' % epoch)
-                torch.save(opt.state_dict(), args.model_prefix + '_epoch-%d_optimizer.pt' % epoch)
-
-            _logger.info('Epoch #%d validating' % epoch)
-            valid_acc,loss_mean,loss_std = evaluate(model, val_loader, dev, loss_func=loss_func)
-            loss_vals_validation[epoch] =loss_mean
-            loss_std_validation[epoch] = loss_std
-            acc_vals_validation[epoch] = valid_acc
-            if valid_acc > best_valid_acc:
-                best_valid_acc = valid_acc
-                if args.model_prefix:
-                    shutil.copy2(args.model_prefix + '_epoch-%d_state.pt' % epoch,
-                                 args.model_prefix + '_best_acc_state.pt')
-                    torch.save(model, args.model_prefix + '_best_acc_full.pt')
-            _logger.info('Epoch #%d: Current validation acc: %.5f (best: %.5f)' % (epoch, valid_acc, best_valid_acc))
-            
-            # save again in each epoch?
-            os.system('mkdir -p %s_history/'%args.model_prefix)
-            np.save('%s_history/acc_vals_validation.npy'%(args.model_prefix),acc_vals_validation)
-            np.save('%s_history/loss_vals_training.npy'%(args.model_prefix),loss_vals_training)
-            np.save('%s_history/loss_vals_validation.npy'%(args.model_prefix),loss_vals_validation)
-            np.save('%s_history/loss_std_validation.npy'%(args.model_prefix),loss_std_validation)
-            np.save('%s_history/loss_std_training.npy'%(args.model_prefix),loss_std_training)
-
-        dirname = os.path.dirname('%s_history/'%args.model_prefix)
-        if dirname and not os.path.exists(dirname):
-            os.makedirs(dirname)
+        gpus = len(gpus)
+        train_args = {args, train_loader, val_loader, network_module, model, data_config, gpus, train_input_names, train_label_names}
+        os.environ['MASTER_ADDR'] = '192.168.20.16'
+        os.environ['MASTER_PORT'] = '8888'
+        mp.spawn(distributed_train, nprocs=args.gpus, args=(*train_args,))
+        # train(args, train_loader, model, dev, data_config, gpus, gpu)
 
     else:
         # run prediction
