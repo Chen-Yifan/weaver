@@ -307,8 +307,38 @@ def save_awk(scores, labels, observers):
 
     awkward.save(args.predict_output, output, mode='w')
 
-def distributed_train(gpu, args, train_loader, val_loader, network_module, model, data_config, gpus, train_input_names, train_label_names):
-# loss function
+def distributed_train(gpu, args):
+    # multi-gpu
+    gpus_per_node = 4
+    n_nodes = 1
+    rank = gpus_per_node * n_nodes + gpu
+    world_size = gpus_per_node * n_nodes
+    dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
+
+    torch.manual_seed(0)
+    train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args)
+    if args.io_test:
+        data_loader = train_loader
+        iotest(args, data_loader)
+        return
+
+    model, model_info, network_module = _model(args, data_config)
+
+    # export to ONNX
+    if args.export_onnx:
+        onnx(args, model, data_config, model_info)
+        return
+
+    torch.cuda.set_device(gpu)
+    model.cuda(gpu)
+
+    if gpus > 1:
+        model = torch.nn.parallel.DistributedDataParallel(model,
+                                      device_ids=[gpu])  # model becomes `torch.nn.DataParallel` w/ model.module being the orignal `torch.nn.Module`
+    else: 
+        model = torch.nn.DataParallel(model, device_id=[gpu])
+    
+    # loss function
     try:
         network_options = {k: ast.literal_eval(v) for k, v in args.network_option}
         loss_func = network_module.get_loss(data_config, **network_options)
@@ -342,21 +372,6 @@ def distributed_train(gpu, args, train_loader, val_loader, network_module, model
         for i,k in enumerate(t_loss_std_training): loss_std_training[i] = k
         for i,k in enumerate(t_loss_vals_validation): loss_vals_validation[i] = k
         for i,k in enumerate(t_loss_std_validation): loss_std_validation[i] = k
-
-    gpus_per_node = 4
-    n_nodes = 1
-    rank = gpus_per_node * n_nodes + gpu
-    world_size = gpus_per_node * n_nodes
-    dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
-
-    torch.manual_seed(0)
-    torch.cuda.set_device(gpu)
-    model.cuda(gpu)
-
-    # multi-gpu
-    if gpus > 1:
-        model = torch.nn.parallel.DistributedDataParallel(model,
-                                      device_ids=[gpu])  # model becomes `torch.nn.DataParallel` w/ model.module being the orignal `torch.nn.Module`
 
     # lr finder: keep it after all other setups
     if args.lr_finder is not None:
@@ -433,39 +448,46 @@ def main(args):
         gpus = None
         dev = torch.device('cpu')
 
-    # load data
     if training_mode:
-        train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args)
-    else:
-        test_loader, data_config = test_load(args)
+        gpus = len(gpus)
+        os.environ['MASTER_ADDR'] = '192.168.20.16'
+        os.environ['MASTER_PORT'] = '8888'
+        mp.spawn(distributed_train, nprocs=4, args=(args,))
+        # train(args, train_loader, model, dev, data_config, gpus, gpu)
+        
+    # load data
+    # if training_mode:
+        # train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args)
+    # else:
+        # test_loader, data_config = test_load(args)
 
-    if args.io_test:
-        data_loader = train_loader if training_mode else test_loader
-        iotest(args, data_loader)
-        return
+    # if args.io_test:
+        # data_loader = train_loader if training_mode else test_loader
+        # iotest(args, data_loader)
+        # return
 
-    model, model_info, network_module = _model(args, data_config)
+    # model, model_info, network_module = _model(args, data_config)
 
     # export to ONNX
-    if args.export_onnx:
-        onnx(args, model, data_config, model_info)
-        return
+    # if args.export_onnx:
+        # onnx(args, model, data_config, model_info)
+        # return
 
     # note: we should always save/load the state_dict of the original model, not the one wrapped by nn.DataParallel
     # so we do not convert it to nn.DataParallel now
     # model = model.to(dev)
 
-    if training_mode:
-        gpus = len(gpus)
-        train_args = {args, train_loader, val_loader, network_module, model, data_config, gpus, train_input_names, train_label_names}
-        os.environ['MASTER_ADDR'] = '192.168.20.16'
-        os.environ['MASTER_PORT'] = '8888'
-        mp.spawn(distributed_train, nprocs=args.gpus, args=(*train_args,))
-        # train(args, train_loader, model, dev, data_config, gpus, gpu)
+    # if training_mode:
+    #     gpus = len(gpus)
+    #     train_args = [args, train_loader, val_loader, network_module, model, data_config, gpus, train_input_names, train_label_names]
+    #     os.environ['MASTER_ADDR'] = '192.168.20.16'
+    #     os.environ['MASTER_PORT'] = '8888'
+    #     mp.spawn(distributed_train, nprocs=4, args=(*train_args,))
+    #     # train(args, train_loader, model, dev, data_config, gpus, gpu)
 
-    else:
+    # else:
         # run prediction
-        predict_model(args, test_loader, model, dev, data_config, gpus)
+        # predict_model(args, test_loader, model, dev, data_config, gpus)
 
 
 if __name__ == '__main__':
