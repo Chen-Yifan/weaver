@@ -14,7 +14,7 @@ python train.py \
  --network-config networks/in_pf_sv.py  \
  --model-prefix model_checkpoints/ \
  --num-workers 3 \
- --gpus 0 \
+ --gpus 0,1,2,3 \
  --batch-size 512 \
  --start-lr 5e-3 \
  --num-epochs 20 \
