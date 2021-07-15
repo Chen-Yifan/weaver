@@ -309,7 +309,7 @@ def save_awk(scores, labels, observers):
 
 def distributed_train(gpu, args):
     # multi-gpu
-    gpus_per_node = 4
+    gpus_per_node = args.gpus
     n_nodes = 1
     rank = gpus_per_node * n_nodes + gpu
     world_size = gpus_per_node * n_nodes
@@ -450,9 +450,10 @@ def main(args):
 
     if training_mode:
         gpus = len(gpus)
-        os.environ['MASTER_ADDR'] = '192.168.20.16'
+        os.environ['MASTER_ADDR'] = ' 192.168.20.11'
         os.environ['MASTER_PORT'] = '8888'
-        mp.spawn(distributed_train, nprocs=4, args=(args,))
+        args.gpus = 2
+        mp.spawn(distributed_train, nprocs=args.gpus, args=(args,))
         # train(args, train_loader, model, dev, data_config, gpus, gpu)
         
     # load data
