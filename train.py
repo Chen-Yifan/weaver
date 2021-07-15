@@ -312,6 +312,7 @@ def distributed_train(gpu, args):
     gpus_per_node = args.gpus
     n_nodes = 1
     rank = gpus_per_node * n_nodes + gpu
+    print("rank:", rank)
     world_size = gpus_per_node * n_nodes
     dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
 
@@ -453,6 +454,7 @@ def main(args):
         os.environ['MASTER_ADDR'] = ' 192.168.20.11'
         os.environ['MASTER_PORT'] = '8888'
         args.gpus = 2
+        print("args before calling spawn", args)
         mp.spawn(distributed_train, nprocs=args.gpus, args=(args,))
         # train(args, train_loader, model, dev, data_config, gpus, gpu)
         
