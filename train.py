@@ -311,10 +311,13 @@ def distributed_train(gpu, args):
     # multi-gpu
     gpus_per_node = args.gpus
     n_nodes = 1
-    rank = gpus_per_node * n_nodes + gpu
+    nr = 0
+    rank = gpus_per_node * nr + gpu
+    print("gpu: rank", gpu, rank)
     world_size = gpus_per_node * n_nodes
+    print("world size", world_size)
     dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
-
+    print("after init")
     torch.manual_seed(0)
     train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args)
     if args.io_test:
@@ -332,7 +335,7 @@ def distributed_train(gpu, args):
     torch.cuda.set_device(gpu)
     model.cuda(gpu)
 
-    if gpus > 1:
+    if args.gpus > 1:
         model = torch.nn.parallel.DistributedDataParallel(model,
                                       device_ids=[gpu])  # model becomes `torch.nn.DataParallel` w/ model.module being the orignal `torch.nn.Module`
     else: 
@@ -395,7 +398,7 @@ def distributed_train(gpu, args):
                 continue
         print('-' * 50)
         _logger.info('Epoch #%d training' % epoch)
-        loss_mean,loss_std = train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=scaler)
+        loss_mean,loss_std = train(model, loss_func, opt, scheduler, train_loader, gpu, grad_scaler=scaler)
         loss_vals_training[epoch] =loss_mean
         loss_std_training[epoch] = loss_std
         if args.model_prefix:
@@ -403,7 +406,7 @@ def distributed_train(gpu, args):
             if dirname and not os.path.exists(dirname):
                 os.makedirs(dirname)
             state_dict = model.module.state_dict() if isinstance(model,
-                                                                 torch.nn.DataParallel) else model.state_dict()
+                                                                 torch.nn.parallel.DistributedDataParallel) else model.state_dict()
             torch.save(state_dict, args.model_prefix + '_epoch-%d_state.pt' % epoch)
             torch.save(opt.state_dict(), args.model_prefix + '_epoch-%d_optimizer.pt' % epoch)
         _logger.info('Epoch #%d validating' % epoch)
@@ -450,9 +453,10 @@ def main(args):
 
     if training_mode:
         gpus = len(gpus)
-        os.environ['MASTER_ADDR'] = ' 192.168.20.11'
+        os.environ['MASTER_ADDR'] = '192.168.100.12'
         os.environ['MASTER_PORT'] = '8888'
         args.gpus = 2
+        print("args before calling spawn", args)
         mp.spawn(distributed_train, nprocs=args.gpus, args=(args,))
         # train(args, train_loader, model, dev, data_config, gpus, gpu)
         
