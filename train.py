@@ -446,19 +446,19 @@ def main(args):
     if args.gpus:
         gpus = [int(i) for i in args.gpus.split(',')]
         print(gpus,gpus[0])
-        dev = torch.device(gpus[0])
+        # dev = torch.device(gpus[0])
     else:
         gpus = None
-        dev = torch.device('cpu')
+        # dev = torch.device('cpu')
 
     if training_mode:
-        gpus = len(gpus)
-        os.environ['MASTER_ADDR'] = '192.168.100.12'
+        args.gpus = len(gpus)
+        os.environ['MASTER_ADDR'] = ' 192.168.20.11'
         os.environ['MASTER_PORT'] = '8888'
-        args.gpus = 2
         print("args before calling spawn", args)
         mp.spawn(distributed_train, nprocs=args.gpus, args=(args,))
         # train(args, train_loader, model, dev, data_config, gpus, gpu)
+        
         
     # load data
     # if training_mode:
