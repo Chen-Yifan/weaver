@@ -74,7 +74,8 @@ parser.add_argument('--io-test', action='store_true', default=False,
                     help='test throughput of the dataloader')
 
 
-def train_load(args):
+def train_load(args, gpu):
+    rank = args.nr * args.gpus + gpu
     """
     Loads the training data.
     :param args:
@@ -94,12 +95,17 @@ def train_load(args):
                                    load_range_and_fraction=((0, args.train_val_split), args.data_fraction),
                                    file_fraction=args.file_fraction, fetch_by_files=args.fetch_by_files,
                                    fetch_step=args.fetch_step)
+    train_sampler = torch.utils.data.distributed.DistributedSampler(train_data,
+                                                                    num_replicas=args.world_size,
+                                                                    rank=rank)
+    train_loader = DataLoader(train_data, num_workers=num_workers, batch_size=args.batch_size, drop_last=True,
+                              pin_memory=True, sampler=train_sampler)
+
     val_data = SimpleIterDataset(filelist, args.data_config, for_training=True,
                                  load_range_and_fraction=((args.train_val_split, 1), args.data_fraction),
                                  file_fraction=args.file_fraction, fetch_by_files=args.fetch_by_files,
                                  fetch_step=args.fetch_step)
-    train_loader = DataLoader(train_data, num_workers=num_workers, batch_size=args.batch_size, drop_last=True,
-                              pin_memory=True)
+    
     val_loader = DataLoader(val_data, num_workers=num_workers, batch_size=args.batch_size, drop_last=True,
                             pin_memory=True)
     data_config = train_data.config
@@ -311,15 +317,15 @@ def distributed_train(gpu, args):
     # multi-gpu
     gpus_per_node = args.gpus
     n_nodes = 1
-    nr = 0
-    rank = gpus_per_node * nr + gpu
+    args.nr = 0
+    rank = gpus_per_node * args.nr + gpu
     print("gpu: rank", gpu, rank)
     world_size = gpus_per_node * n_nodes
     print("world size", world_size)
     dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
     print("after init")
     torch.manual_seed(0)
-    train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args)
+    train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args, gpu)
     if args.io_test:
         data_loader = train_loader
         iotest(args, data_loader)
@@ -453,7 +459,7 @@ def main(args):
 
     if training_mode:
         args.gpus = len(gpus)
-        os.environ['MASTER_ADDR'] = ' 192.168.20.11'
+        os.environ['MASTER_ADDR'] = '192.168.20.12'
         os.environ['MASTER_PORT'] = '8888'
         print("args before calling spawn", args)
         mp.spawn(distributed_train, nprocs=args.gpus, args=(args,))
