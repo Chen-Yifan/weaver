@@ -144,18 +144,17 @@ class _SimpleIter(object):
                 self.load_range = (offset, offset + interval)
             else:
                 self.load_range = (start_pos, start_pos + interval)
-        print("### self.filelist:", self.filelist)
-        _logger.debug('Init iter [%d], will load %d (out of %d*%s=%d) files with load_range=%s:\n%s',
-                      0 if worker_info is None else worker_info.id,
+        _logger.info('Init iter [%d], will load %d (out of %d*%s=%d) files with load_range=%s:%s'
+                      %(0 if worker_info is None else worker_info.id,
                       len(self.filelist),
                       len(self._init_filelist), self._file_fraction, int(len(self._init_filelist) * self._file_fraction),
-                      str(self.load_range),
+                      str(self.load_range[0]), str(self.load_range[1]))
                       #'\n'.join(self.filelist[:1]) + '\n ... ' + self.filelist[-1],
                       )
         # reset iter status
         self.table = None
         self.prefetch = None
-        self.ipos = 0 if self._fetch_by_files else self.load_range[0] # fetch cursor
+        self.ipos = 0 if self._fetch_by_files else self.load_range[0]+self._fetch_step*self.rank # fetch cursor
         self.indices = []
         self.cursor = 0
         # prefetch the first entry asynchronously
@@ -196,7 +195,7 @@ class _SimpleIter(object):
                 filelist = self.filelist[int(self.ipos) : int(self.ipos + self._fetch_step)]
                 load_range = self.load_range
         else:
-            if self.ipos >= self.load_range[1]:
+            if self.ipos >= self.load_range[1]: # out of the filelist bound
                 self.prefetch = None
                 return
             else:
@@ -207,7 +206,7 @@ class _SimpleIter(object):
             self.prefetch = self.executor.submit(_load_next, self._data_config, filelist, load_range, self._sampler_options)
         else:
             self.prefetch = _load_next(self._data_config, filelist, load_range, self._sampler_options)
-        self.ipos += self._fetch_step
+        self.ipos += self._fetch_step * self.world_size
 
     def get_data(self, i):
         # inputs
@@ -244,7 +243,7 @@ class SimpleIterDataset(torch.utils.data.IterableDataset):
     """
 
     def __init__(self, filelist, data_config_file, for_training=True, load_range_and_fraction=None, fetch_by_files=False, fetch_step=0.01, file_fraction=1,
-                 remake_weights=False, up_sample=True, weight_scale=1, max_resample=10, async_load=True):
+                 remake_weights=False, up_sample=True, weight_scale=1, max_resample=10, async_load=True, world_size=1, rank=0):
         _init_args = set(self.__dict__.keys())
         self._init_filelist = filelist if isinstance(filelist, (list, tuple)) else glob.glob(filelist)
         self._init_load_range_and_fraction = load_range_and_fraction
@@ -255,6 +254,8 @@ class SimpleIterDataset(torch.utils.data.IterableDataset):
             self._fetch_step = fetch_step
         self._file_fraction = file_fraction
         self._async_load = async_load
+        self.world_size = world_size
+        self.rank = rank
 
         # ==== sampling parameters ====
         self._sampler_options = {
@@ -264,7 +265,7 @@ class SimpleIterDataset(torch.utils.data.IterableDataset):
             }
 
         if for_training:
-            self._sampler_options.update(training=True, shuffle=True, reweight=True)
+            self._sampler_options.update(training=True, shuffle=False, reweight=True)
         else:
             self._sampler_options.update(training=False, shuffle=False, reweight=False)
 

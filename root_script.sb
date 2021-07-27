@@ -3,12 +3,13 @@
 #SBATCH --output='weaver.%j.%N.out'
 #SBATCH --error='weaver.%j.%N.err'
 #SBATCH --partition=gpux8
-#SBATCH --time=36
+#SBATCH --time=4
 module load wmlce/1.7.0-py3.7
 #!/bin/bash
 conda init bash
 conda activate wmlce-1.7
-ls dataset/train_root/
+
+ip=$(hostname -i)
 
 python train.py \
  --data-train 'dataset/train_root/ntuple_merged_*.root' \
@@ -16,7 +17,8 @@ python train.py \
  --network-config networks/in_pf_sv.py  \
  --model-prefix model_checkpoints/all_data_v2 \
  --num-workers 3 \
- --gpus 0,1,2,3 \
+ --gpus 2 \
+ --ipaddr $ip \
  --batch-size 512 \
  --start-lr 5e-3 \
  --num-epochs 20 \

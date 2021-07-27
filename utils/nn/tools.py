@@ -43,10 +43,11 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=None)
     start_time = time.time()
 
     loss_array = []
-    print("### data_config.input_names:\n", data_config.input_names)
+    # print("\n### data_config.input_names:", data_config.input_names)
+    # print("\n### data_config.label_names:", data_config.label_names)
     with tqdm.tqdm(train_loader) as tq:
         for X, y, _ in tq:
-            inputs = [X[k].to(dev) for k in data_config.input_names]
+            inputs = [X[k].cuda(non_blocking=True) for k in data_config.input_names]
             label = y[data_config.label_names[0]].long()
             try:
                 label_mask = y[data_config.label_names[0] + '_mask'].bool()
@@ -55,7 +56,7 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=None)
             label = _flatten_label(label, label_mask)
             num_examples = label.shape[0]
             label_counter.update(label.cpu().numpy())
-            label = label.to(dev)
+            label = label.cuda(non_blocking=True)
             opt.zero_grad()
             logits = model(*inputs)
             logits = _flatten_preds(logits, label_mask)
@@ -80,6 +81,7 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=None)
             total_correct += correct
 
             tq.set_postfix({
+                'GPU': dev,
                 'Loss': '%.5f' % loss,
                 'AvgLoss': '%.5f' % (total_loss / num_batches),
                 'Acc': '%.5f' % (correct / num_examples),
@@ -146,6 +148,7 @@ def evaluate(model, test_loader, dev, for_training=True, loss_func=None, eval_me
                 total_correct += correct
 
                 tq.set_postfix({
+                    'GPU': dev,
                     'Loss': '%.5f' % loss,
                     'AvgLoss': '%.5f' % (total_loss / count),
                     'Acc': '%.5f' % (correct / num_examples),

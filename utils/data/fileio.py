@@ -56,7 +56,6 @@ def _read_files(filelist, branches, load_range=None, show_progressbar=False, **k
     table = defaultdict(list)
     if show_progressbar:
         filelist = tqdm.tqdm(filelist)
-        print("### filelist: ", filelist)
     for filepath in filelist:
         ext = os.path.splitext(filepath)[1]
         if ext not in ('.h5', '.root', '.awkd'):

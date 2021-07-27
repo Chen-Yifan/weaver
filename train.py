@@ -59,8 +59,9 @@ parser.add_argument('--batch-size', type=int, default=128,
                     help='batch size')
 parser.add_argument('--use-amp', action='store_true', default=False,
                     help='use mixed precision training (fp16); NOT WORKING YET')
-parser.add_argument('--gpus', type=str, default='1',
-                    help='device for the training/testing; to use CPU, set to empty string (''); to use multiple gpu, set it as a comma separated list, e.g., `1,2,3,4`')
+parser.add_argument('--gpus', type=int, default=1,
+                    help="number of gpus, 0 means CPU")
+                    # help='device for the training/testing; to use CPU, set to empty string (''); to use multiple gpu, set it as a comma separated list, e.g., `1,2,3,4`')
 parser.add_argument('--num-workers', type=int, default=2,
                     help='number of threads to load the dataset; memory consumption and disk access load increases (~linearly) with this numbers')
 parser.add_argument('--predict', action='store_true', default=False,
@@ -72,6 +73,8 @@ parser.add_argument('--export-onnx', type=str, default=None,
                          'needs to set `--data-config`, `--network-config`, and `--model-prefix` (requires the full model path)')
 parser.add_argument('--io-test', action='store_true', default=False,
                     help='test throughput of the dataloader')
+parser.add_argument('--ipaddr', type=str, default='192.168.20.12',
+                    help='MASTER_ADDR for distributed training')
 
 
 def train_load(args, gpu):
@@ -82,7 +85,6 @@ def train_load(args, gpu):
     :return: train_loader, val_loader, data_config, train_inputs
     """
     filelist = sorted(sum([glob.glob(f) for f in args.data_train], []))
-    print('#### filelist ',filelist)
     # np.random.seed(1)
     np.random.shuffle(filelist)
     if args.demo:
@@ -94,12 +96,10 @@ def train_load(args, gpu):
     train_data = SimpleIterDataset(filelist, args.data_config, for_training=True,
                                    load_range_and_fraction=((0, args.train_val_split), args.data_fraction),
                                    file_fraction=args.file_fraction, fetch_by_files=args.fetch_by_files,
-                                   fetch_step=args.fetch_step)
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_data,
-                                                                    num_replicas=args.world_size,
-                                                                    rank=rank)
+                                   fetch_step=args.fetch_step, world_size=args.world_size, rank=rank) # add rank in iterdataset
+
     train_loader = DataLoader(train_data, num_workers=num_workers, batch_size=args.batch_size, drop_last=True,
-                              pin_memory=True, sampler=train_sampler)
+                              pin_memory=True)
 
     val_data = SimpleIterDataset(filelist, args.data_config, for_training=True,
                                  load_range_and_fraction=((args.train_val_split, 1), args.data_fraction),
@@ -314,15 +314,14 @@ def save_awk(scores, labels, observers):
     awkward.save(args.predict_output, output, mode='w')
 
 def distributed_train(gpu, args):
-    # multi-gpu
-    gpus_per_node = args.gpus
+    # multi-gpu: args: nr, gpus, world_size
     n_nodes = 1
     args.nr = 0
-    rank = gpus_per_node * args.nr + gpu
+    rank = args.gpus * args.nr + gpu
     print("gpu: rank", gpu, rank)
-    world_size = gpus_per_node * n_nodes
-    print("world size", world_size)
-    dist.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
+    args.world_size = args.gpus * n_nodes
+    print("world size", args.world_size)
+    dist.init_process_group(backend='nccl', init_method='env://', world_size=args.world_size, rank=rank)
     print("after init")
     torch.manual_seed(0)
     train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args, gpu)
@@ -449,17 +448,16 @@ def main(args):
     training_mode = not args.predict
 
     # device
-    if args.gpus:
-        gpus = [int(i) for i in args.gpus.split(',')]
-        print(gpus,gpus[0])
-        # dev = torch.device(gpus[0])
-    else:
-        gpus = None
-        # dev = torch.device('cpu')
+    # if args.gpus:
+    #     gpus = [int(i) for i in args.gpus.split(',')]
+    #     print(gpus,gpus[0])
+    #     # dev = torch.device(gpus[0])
+    # else:
+    #     gpus = None
+    #     # dev = torch.device('cpu')
 
     if training_mode:
-        args.gpus = len(gpus)
-        os.environ['MASTER_ADDR'] = '192.168.20.12'
+        os.environ['MASTER_ADDR'] = args.ipaddr
         os.environ['MASTER_PORT'] = '8888'
         print("args before calling spawn", args)
         mp.spawn(distributed_train, nprocs=args.gpus, args=(args,))
