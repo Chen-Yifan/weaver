@@ -181,7 +181,7 @@ def evaluate(model, test_loader, dev, for_training=True, loss_func=None, eval_me
         return total_correct / count, scores, labels, observers
 
 
-def evaluate_onnx(model_path, test_loader, eval_metrics=['roc_auc_score', 'roc_auc_score_matrix', 'confusion_matrix']):
+def evaluate_onnx(model_path, test_loader, eval_metrics=['roc_auc_score', 'roc_auc_score_matrix', 'confusion_matrix', 'roc_auc_plot']):
     import onnxruntime
     sess = onnxruntime.InferenceSession(model_path)
 
