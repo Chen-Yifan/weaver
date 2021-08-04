@@ -167,7 +167,7 @@ def main(args):
 
     funcs = {
         #'score_deepBoosted_Hqqqq': 'pfDeepBoostedJetTags_probHqqqq/(pfDeepBoostedJetTags_probHqqqq+pfDeepBoostedJetTags_probQCDb+pfDeepBoostedJetTags_probQCDbb+pfDeepBoostedJetTags_probQCDc+pfDeepBoostedJetTags_probQCDcc+pfDeepBoostedJetTags_probQCDothers)',
-        'score_deepBoosted_Hqqqq': 'orig_pfDeepBoostedJetTags_probHqqqq/(orig_pfDeepBoostedJetTags_probHqqqq+orig_pfDeepBoostedJetTags_probQCDb+orig_pfDeepBoostedJetTags_probQCDbb+orig_pfDeepBoostedJetTags_probQCDc+orig_pfDeepBoostedJetTags_probQCDcc+orig_pfDeepBoostedJetTags_probQCDothers)',
+        #'score_deepBoosted_Hqqqq': 'orig_pfDeepBoostedJetTags_probHqqqq/(orig_pfDeepBoostedJetTags_probHqqqq+orig_pfDeepBoostedJetTags_probQCDb+orig_pfDeepBoostedJetTags_probQCDbb+orig_pfDeepBoostedJetTags_probQCDc+orig_pfDeepBoostedJetTags_probQCDcc+orig_pfDeepBoostedJetTags_probQCDothers)',
         #'score_label_H_WW_lnuqq_top': 'score_label_H_WW_lnuqq/(score_label_H_WW_lnuqq+score_fj_isTop)',
         #'score_label_H_WW_lnuqq_QCD': 'score_label_H_WW_lnuqq/(score_label_H_WW_lnuqq+score_fj_isQCD)',
     }
@@ -175,7 +175,7 @@ def main(args):
     # inputfiles and names should have same shape
     inputfiles = args.input.split(',')
     names = args.name.split(',')
-    
+    print(inputfiles, names)
     # make dict of branches to load
     lfeatures = ['fj_sdmass','fj_pt']
     # lfeatures = ['orig_fj_sdmass','orig_fj_pt']
@@ -184,6 +184,7 @@ def main(args):
     # check if the input files have the same shape
     for n,name in enumerate(names):
         table = _read_root(inputfiles[n], lfeatures)
+        print("line 186 read_root", inputfiles[n])
         for k in table.keys():
             sh.append(table[k].shape)
             if n>0 and table[k].shape != sh[0]:
@@ -213,7 +214,7 @@ def main(args):
             loadbranches.add(label_bkg['label'])
             loadbranches.add(label_sig['label'])
             for k in lfeatures: loadbranches.add(k)
-
+        print("line 217 filename", inputfiles[n], loadbranches)
         table = _read_root(inputfiles[n], loadbranches)
         if(n==0 or (not sameshape)):
             _build_new_variables(table, {k: v for k,v in funcs.items() if k in scores.keys()})

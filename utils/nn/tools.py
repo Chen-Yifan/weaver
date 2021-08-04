@@ -1,8 +1,9 @@
 import numpy as np
-import awkward0 as awkward 
+import awkward #0 as awkward 
 import tqdm
 import time
 import torch
+import torch.autograd.profiler as profiler
 
 from collections import defaultdict, Counter
 from .metrics import evaluate_metrics
@@ -57,6 +58,7 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=None)
             label_counter.update(label.cpu().numpy())
             label = label.to(dev)
             opt.zero_grad()
+            
             logits = model(*inputs)
             logits = _flatten_preds(logits, label_mask)
             loss = loss_func(logits, label)

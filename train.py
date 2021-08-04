@@ -318,12 +318,11 @@ def main(args):
     # device
     if args.gpus:
         gpus = [int(i) for i in args.gpus.split(',')]
-        print(gpus,gpus[0])
         dev = torch.device(gpus[0])
     else:
         gpus = None
         dev = torch.device('cpu')
-
+    print("###", gpus)
     # load data
     if training_mode:
         train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args)
