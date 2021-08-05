@@ -1,8 +1,9 @@
 import numpy as np
-import awkward0 as awkward 
+import awkward #0 as awkward 
 import tqdm
 import time
 import torch
+import torch.autograd.profiler as profiler
 
 from collections import defaultdict, Counter
 from .metrics import evaluate_metrics
@@ -48,7 +49,7 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=None)
     with tqdm.tqdm(train_loader) as tq:
         for X, y, _ in tq:
             inputs = [X[k].cuda(non_blocking=True) for k in data_config.input_names]
-            label = y[data_config.label_names[0]].long()
+            label = y[data_config.label_names[0]].long().cuda(non_blocking=True)
             try:
                 label_mask = y[data_config.label_names[0] + '_mask'].bool()
             except KeyError:
@@ -95,7 +96,8 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=None)
     scheduler.step()
     return l_training,np.std(np.array(loss_array))
 
-def evaluate(model, test_loader, dev, for_training=True, loss_func=None, eval_metrics=['roc_auc_score', 'roc_auc_score_matrix', 'confusion_matrix']):
+
+def evaluate(model, test_loader, dev, for_training=True, loss_func=None, eval_metrics=['roc_auc_score', 'roc_auc_score_matrix', 'confusion_matrix', 'roc_plot']):
     model.eval()
 
     data_config = test_loader.dataset.config
@@ -148,7 +150,6 @@ def evaluate(model, test_loader, dev, for_training=True, loss_func=None, eval_me
                 total_correct += correct
 
                 tq.set_postfix({
-                    'GPU': dev,
                     'Loss': '%.5f' % loss,
                     'AvgLoss': '%.5f' % (total_loss / count),
                     'Acc': '%.5f' % (correct / num_examples),
@@ -182,7 +183,7 @@ def evaluate(model, test_loader, dev, for_training=True, loss_func=None, eval_me
         return total_correct / count, scores, labels, observers
 
 
-def evaluate_onnx(model_path, test_loader, eval_metrics=['roc_auc_score', 'roc_auc_score_matrix', 'confusion_matrix']):
+def evaluate_onnx(model_path, test_loader, eval_metrics=['roc_auc_score', 'roc_auc_score_matrix', 'confusion_matrix', 'roc_auc_plot']):
     import onnxruntime
     sess = onnxruntime.InferenceSession(model_path)
 

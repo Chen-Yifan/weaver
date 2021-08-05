@@ -96,7 +96,7 @@ def train_load(args, gpu):
     train_data = SimpleIterDataset(filelist, args.data_config, for_training=True,
                                    load_range_and_fraction=((0, args.train_val_split), args.data_fraction),
                                    file_fraction=args.file_fraction, fetch_by_files=args.fetch_by_files,
-                                   fetch_step=args.fetch_step, world_size=args.world_size, rank=rank) # add rank in iterdataset
+                                   fetch_step=args.fetch_step,world_size=args.world_size, rank=rank) # add rank in iterdataset
 
     train_loader = DataLoader(train_data, num_workers=num_workers, batch_size=args.batch_size, drop_last=True,
                               pin_memory=True)
@@ -324,6 +324,8 @@ def distributed_train(gpu, args):
     dist.init_process_group(backend='nccl', init_method='env://', world_size=args.world_size, rank=rank)
     print("after init")
     torch.manual_seed(0)
+    torch.cuda.set_device(gpu)
+    
     train_loader, val_loader, data_config, train_input_names, train_label_names = train_load(args, gpu)
     if args.io_test:
         data_loader = train_loader
@@ -337,7 +339,6 @@ def distributed_train(gpu, args):
         onnx(args, model, data_config, model_info)
         return
 
-    torch.cuda.set_device(gpu)
     model.cuda(gpu)
 
     if args.gpus > 1:
@@ -415,7 +416,7 @@ def distributed_train(gpu, args):
             torch.save(state_dict, args.model_prefix + '_epoch-%d_state.pt' % epoch)
             torch.save(opt.state_dict(), args.model_prefix + '_epoch-%d_optimizer.pt' % epoch)
         _logger.info('Epoch #%d validating' % epoch)
-        valid_acc,loss_mean,loss_std = evaluate(model, val_loader, dev, loss_func=loss_func)
+        valid_acc,loss_mean,loss_std = evaluate(model, val_loader, gpu, loss_func=loss_func)
         loss_vals_validation[epoch] =loss_mean
         loss_std_validation[epoch] = loss_std
         acc_vals_validation[epoch] = valid_acc

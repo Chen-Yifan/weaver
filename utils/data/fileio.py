@@ -19,7 +19,7 @@ def _read_hdf5(filepath, branches, load_range=None):
 
 
 def _read_root(filepath, branches, load_range=None, treename=None):
-    import uproot3 as uproot
+    import uproot #3 as uproot
     with uproot.open(filepath) as f:
         if treename is None:
             treenames = set([k.decode('utf-8').split(';')[0] for k, v in f.allitems() if getattr(v, 'classname', '') == 'TTree'])
