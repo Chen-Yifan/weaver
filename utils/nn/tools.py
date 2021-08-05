@@ -86,7 +86,7 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=None)
                 'AvgLoss': '%.5f' % (total_loss / num_batches),
                 'Acc': '%.5f' % (correct / num_examples),
                 'AvgAcc': '%.5f' % (total_correct / count)})
-
+    
     time_diff = time.time() - start_time
     _logger.info('Processed %d entries in total (avg. speed %.1f entries/s)' % (count, count / time_diff))
     _logger.info('Train class distribution: \n    %s', str(sorted(label_counter.items())))
@@ -95,7 +95,7 @@ def train(model, loss_func, opt, scheduler, train_loader, dev, grad_scaler=None)
     scheduler.step()
     return l_training,np.std(np.array(loss_array))
 
-def evaluate(model, test_loader, dev, for_training=True, loss_func=None, eval_metrics=['roc_auc_score', 'roc_auc_score_matrix', 'confusion_matrix']):
+def evaluate(model, test_loader, dev, for_training=True, loss_func=None, eval_metrics=['roc_auc_score', 'roc_auc_score_matrix', 'confusion_matrix', 'roc_plot']):
     model.eval()
 
     data_config = test_loader.dataset.config

@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 
 
 def roc_auc_score_ovo(y_true, y_score):
+    # print("In roc_auc_score_ovo\n (y_score.shape = {}, y_true.shape = {})".format(y_score.shape, y_true.shape))
     if y_score.ndim == 1:
         return _m.roc_auc_score(y_true, y_score)
     else:
@@ -45,7 +46,9 @@ def confusion_matrix(y_true, y_score):
         y_pred = y_score.argmax(1)
     return _m.confusion_matrix(y_true, y_pred, normalize='true')
 
-def roc_auc_plot(y_true, y_score):
+def roc_plot(y_true, y_score):
+    # print("In roc_plot\n (y_score.shape = {}, y_true.shape = {})".format(y_score.shape, y_true.shape))
+    y_score = y_score[:,1]
     fpr, tpr, thresholds = _m.roc_curve(y_true, y_score)
     plt.clf()
     plt.plot(fpr, tpr)
@@ -57,11 +60,15 @@ def roc_auc_plot(y_true, y_score):
         _m.roc_auc_score(y_true, y_score))
     return 
 
+def roc_auc_score(y_true, y_score):
+    y_score = y_score[:,1]
+    return _m.roc_auc_score(y_true, y_score)
+    
 _metric_dict = {
-    'roc_auc_score': _m.roc_auc_score, #, multi_class='ovo'),
+    'roc_auc_score': roc_auc_score, # partial(_m.roc_auc_score, multi_class='ovo'),
     'roc_auc_score_matrix': roc_auc_score_ovo,
     'confusion_matrix': confusion_matrix,
-    'roc_auc_plot': roc_auc_plot
+    'roc_plot': roc_plot
     }
 
 
