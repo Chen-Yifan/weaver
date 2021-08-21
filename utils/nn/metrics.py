@@ -50,12 +50,22 @@ def roc_plot(y_true, y_score):
     # print("In roc_plot\n (y_score.shape = {}, y_true.shape = {})".format(y_score.shape, y_true.shape))
     y_score = y_score[:,1]
     fpr, tpr, thresholds = _m.roc_curve(y_true, y_score)
-    plt.clf()
+    
+    fig = plt.figure(figsize=(6,12), dpi=80)
+    ax = fig.add_subplot(2, 1, 1)
+    
     plt.plot(fpr, tpr)
     plt.title('ROC curve')
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
-    plt.savefig("plots/ROC.png")
+    
+    ax = fig.add_subplot(2, 1, 2)
+    plt.plot(tpr, fpr)
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    ax.set_yscale('log')
+    fig.savefig("plots/ROC_log.png")
+    plt.close(fig) 
     print('Area under the Receiver Operating Characteristic curve:', 
         _m.roc_auc_score(y_true, y_score))
     return 

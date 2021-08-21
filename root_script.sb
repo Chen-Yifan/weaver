@@ -1,20 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name='yifanDL1'
-#SBATCH --output='weaver.%j.%N.out'
-#SBATCH --error='weaver.%j.%N.err'
-#SBATCH --partition=gpux1
+#SBATCH --job-name='rk_1519'
+#SBATCH --output='output/weaver1519.%j.%N.out'
+#SBATCH --error='output/weaver1519.%j.%N.err'
+#SBATCH --partition=gpux2
 #SBATCH --time=12
 module load wmlce/1.7.0-py3.7
 #!/bin/bash
 conda init bash
-conda activate wmlce-1.7
+conda activate pytorch-v1.7.1-copy
 python train.py \
- --data-train 'dataset/train_root/ntuple_merged_*.root' \
+ --data-train 'dataset/train1519/ntuple_merged_*.root' \
+ --data-test 'dataset/test1519/ntuple_merged_*.root' \
  --data-config data/ak15_points_pf_sv.yaml \
  --network-config networks/in_pf_sv.py  \
- --model-prefix model_checkpoints/ \
- --num-workers 3 \
- --gpus 0 \
+ --model-prefix model_checkpoints/root/ \
+ --num-workers 4 \
+ --gpus 0,1 \
  --batch-size 512 \
  --start-lr 5e-3 \
  --num-epochs 20 \

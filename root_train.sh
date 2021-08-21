@@ -1,8 +1,8 @@
  python train.py \
- --data-train 'dataset/train_root/ntuple_merged_*.root' \
+ --data-train 'dataset/train_root/ntuple_merged_20.root' \
  --data-config data/ak15_points_pf_sv.yaml \
  --network-config networks/in_pf_sv.py  \
- --model-prefix model_checkpoints/root20/ \
+ --model-prefix model_checkpoints/root/ \
  --num-workers 4 \
  --gpus 0,1 \
  --batch-size 512 \
